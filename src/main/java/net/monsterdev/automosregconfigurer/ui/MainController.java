@@ -14,13 +14,17 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.security.cert.CertPath;
 import java.security.cert.Certificate;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.ResourceBundle;
+import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import javafx.beans.value.ChangeListener;
+import javafx.beans.value.ObservableValue;
 import javafx.fxml.FXML;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.RadioButton;
@@ -41,6 +45,9 @@ import org.apache.logging.log4j.Logger;
 public class MainController extends AbstractUIController implements WindowController {
 
   private static final Logger logger = LogManager.getLogger(MainController.class);
+
+  private static final String JDK_PATH = "SOFTWARE\\JavaSoft\\Java Development Kit";
+  private static final String JRE_PATH = "SOFTWARE\\JavaSoft\\Java Runtime Environment";
 
   @FXML
   private ComboBox<String> cmbInstalledJREPath;
@@ -63,20 +70,30 @@ public class MainController extends AbstractUIController implements WindowContro
 
   private CertificateInfo certificateInfo;
 
-  private String installedJREPath;
   private String jrePath;
 
   @Override
   public void initialize(URL location, ResourceBundle resources) {
+    Set<String> jreInstalledPaths = new HashSet<>();
     try {
-      List<String> jdks = WinRegistry.subKeysForPath(WinRegistry.HKEY_LOCAL_MACHINE, "SOFTWARE\\JavaSoft\\Java Development Kit");
-      System.out.println(jdks);
-    } catch (IllegalAccessException e) {
-      e.printStackTrace();
-    } catch (InvocationTargetException e) {
+      // список установленных JDK
+      List<String> installedJavaVersions;
+      // получаем список установленных JDK
+      installedJavaVersions = WinRegistry.subKeysForPath(WinRegistry.HKEY_LOCAL_MACHINE, JDK_PATH);
+      for (String jdk : installedJavaVersions) {
+        jreInstalledPaths.add(WinRegistry
+            .valueForKey(WinRegistry.HKEY_LOCAL_MACHINE, JDK_PATH + "\\" + jdk, "JavaHome") + "\\jre\\");
+      }
+      // получаем список установленных JRE
+      installedJavaVersions = WinRegistry.subKeysForPath(WinRegistry.HKEY_LOCAL_MACHINE, JRE_PATH);
+      for (String jre : installedJavaVersions) {
+        jreInstalledPaths.add(WinRegistry
+            .valueForKey(WinRegistry.HKEY_LOCAL_MACHINE, JRE_PATH + "\\" + jre, "JavaHome") + "\\");
+      }
+    } catch (Exception e) {
       e.printStackTrace();
     }
-
+    /*
     // Используя переменную среды JAVA_HOME определяем путь, по которому установлен JRE
     String jhPath = System.getenv("JAVA_HOME");
     if (jhPath != null) {
@@ -86,11 +103,13 @@ public class MainController extends AbstractUIController implements WindowContro
       // Если в каталоге, на который указывает JAVA_HOME существует каталоге jre, то JAVA_HOME указывает на
       // JDK, а нам нужен соответствующий JRE
       if (Files.exists(Paths.get(jhPath + "jre"))) {
-        installedJREPath = jhPath + "jre";
+        jreInstalledPaths.add(jhPath + "jre\\");
       }
-      cmbInstalledJREPath.getItems().add(installedJREPath);
     }
-    jrePath = installedJREPath;
+    */
+    cmbInstalledJREPath.getItems().addAll(jreInstalledPaths);
+    cmbInstalledJREPath.getSelectionModel().selectedItemProperty()
+        .addListener((observable, oldValue, newValue) -> jrePath = newValue);
 
     optInstalledJRE.setToggleGroup(jreChoice);
     optInstalledJRE.setSelected(true);
@@ -208,12 +227,14 @@ public class MainController extends AbstractUIController implements WindowContro
           String fileName = path.getFileName().toString();
           if (fileName.matches("^(bcpkix|bcprov).*\\.jar$")) {
             Path destFilePath = Paths.get(jreExtPath + fileName);
-            if (!Files.exists(destFilePath))
+            if (!Files.exists(destFilePath)) {
               Files.copy(path, destFilePath, StandardCopyOption.REPLACE_EXISTING);
+            }
           }
         }
       } catch (Exception e) {
-        UIController.showErrorMessage(String.format("При копировании необходимых библиотек произошла ошибка %s", e.getMessage()));
+        UIController.showErrorMessage(
+            String.format("При копировании необходимых библиотек произошла ошибка %s", e.getMessage()));
       }
     } catch (Exception ex) {
       UIController.showErrorMessage(String.format("При установке КриптоПро JCP произошла ошибка %s", ex.getMessage()));
